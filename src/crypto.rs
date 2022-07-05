@@ -172,6 +172,10 @@ pub fn generate_salt() -> [u8; crate::HASH_SALT_LEN] {
     result
 }
 
+pub fn id_salt() -> [u8 ; crate::HASH_SALT_LEN] {
+    [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]
+}
+
 use deadpool_postgres::Pool;
 use tokio_postgres::NoTls;
 /// Function inits deadpool with read values from env variables.

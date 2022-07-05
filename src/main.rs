@@ -4,6 +4,8 @@ extern crate log;
 
 mod account;
 mod crypto;
+mod judge;
+mod ticket;
 
 use actix_web::{web, App, HttpServer};
 
@@ -34,6 +36,9 @@ fn hashing_seed() -> [u8; 64] {
 async fn main() -> std::io::Result<()> {
     pretty_env_logger::init_timed();
 
+    judge::testing().await;
+    panic!();
+
     if cfg!(debug_assertions) {
         warn!("You are running the application in debug mode! It should only be used for developement.");
 
@@ -58,6 +63,7 @@ async fn main() -> std::io::Result<()> {
             .app_data(web::Data::new(pool.clone()))
             .app_data(web::Data::new(hasher.clone()))
             .service(web::scope("/account").configure(account::account_handler))
+            .service(web::scope("/ticket").configure(ticket::ticket_handler))
     })
     .bind(server_address)?
     .run()

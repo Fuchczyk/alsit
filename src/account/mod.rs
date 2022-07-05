@@ -3,10 +3,12 @@ use actix_web::{
     web, HttpResponse,
 };
 
-use deadpool_postgres::Pool;
+use deadpool_postgres::{Pool, Object};
 use serde::{Deserialize, Serialize};
 
 use crate::crypto::{Encryptor, Hasher};
+
+pub type UserId = i64;
 
 // FIXME: Security error - username needs to be validated before sql query.
 
@@ -18,6 +20,7 @@ pub struct SinupForm {
 }
 
 struct SignupProcessed {
+    id: i64,
     username: String,
     password_hash: Vec<u8>,
     user_salt: Vec<u8>,
@@ -30,21 +33,51 @@ struct LoginForm {
     password: String,
 }
 
+async fn generate_user_id(
+    client: &Object
+) -> Result<i64, ()> {
+    use rand::prelude::*;
+    let mut rng = thread_rng();
+    let check_stmt = include_str!("id_query.sql");
+
+    loop {
+        let possible_id: i64 = rng.gen();
+
+        let query_result = client
+            .query_opt(
+                check_stmt, 
+                &[
+                    &possible_id
+                ]
+            
+            )
+            .await;
+        
+        match query_result {
+            Err(error) => {
+                error!("Error occured while generated user id. {:?}", error);
+                return Err(());
+            }
+            Ok(result) => {
+                if result.is_none() {
+                    return Ok(possible_id);
+                }
+            }
+        }
+    }
+}
+
 async fn insert_into_database(
     processed_data: SignupProcessed,
-    db: web::Data<Pool>,
+    client: Object,
 ) -> HttpResponse {
-    let client = match db.get().await {
-        Ok(c) => c,
-        Err(_) => return HttpResponse::ServiceUnavailable().finish(),
-    };
-
-    let insert_stmt = include_str!("../../sql/insert_user.sql");
+    let insert_stmt = include_str!("insert_user.sql");
 
     let query_result = client
         .query(
             insert_stmt,
             &[
+                &processed_data.id,
                 &processed_data.username,
                 &processed_data.password_hash,
                 &processed_data.user_salt,
@@ -52,6 +85,8 @@ async fn insert_into_database(
             ],
         )
         .await;
+    
+    error!("JESTEM TU3");
 
     match query_result {
         Ok(_) => HttpResponse::Created().finish(),
@@ -105,7 +140,27 @@ pub async fn create_account(
         return HttpResponse::ServiceUnavailable().finish();
     }
 
+    error!("JESTEM TUTAJ1");
+
+    let db = match db.get().await {
+        Ok(database) => database,
+        Err(_) => {
+            return HttpResponse::ServiceUnavailable().finish();
+        }
+    };
+
+    error!("JESTEM TUTAJ2");
+
+    let user_id = match generate_user_id(&db).await {
+        Ok(id) => id,
+        Err(_) => {
+            return HttpResponse::ServiceUnavailable().finish();
+        }
+    };
+
+
     let user_preprocessed = SignupProcessed {
+        id: user_id,
         username: user_data.username.to_string(),
         password_hash: password_hash.into(),
         user_salt: user_salt.into(),
@@ -118,7 +173,7 @@ pub async fn create_account(
 async fn find_user_in_database(
     db: web::Data<Pool>,
     username: &str,
-) -> Result<(Vec<u8>, Vec<u8>), HttpResponse> {
+) -> Result<(Vec<u8>, Vec<u8>, UserId), HttpResponse> {
     // (password_hash, salt)
     let select_stmt = include_str!("../../sql/query_user.sql");
 
@@ -146,8 +201,9 @@ async fn find_user_in_database(
 
     let password_hash: Vec<u8> = row.get(0);
     let user_salt: Vec<u8> = row.get(1);
+    let user_id: i64 = row.get(2);
 
-    Ok((password_hash, user_salt))
+    Ok((password_hash, user_salt, user_id))
 }
 
 /// Function tries to authenticate user with data in 'form'. Possible respones:
@@ -165,7 +221,7 @@ async fn login_into_account(
         return HttpResponse::UnprocessableEntity().body("Username is too long.");
     }
 
-    let (password_hash, user_salt) = match find_user_in_database(db, &form.username).await {
+    let (password_hash, user_salt, user_id) = match find_user_in_database(db, &form.username).await {
         Ok(res) => res,
         Err(e) => return e,
     };
@@ -181,15 +237,24 @@ async fn login_into_account(
                 .unwrap();
 
             // TODO: Expiration time and its renewal
-            let cookie = CookieBuilder::new("auth_token", crate::crypto::encode_hex(&token))
+            let cookie_at = CookieBuilder::new("auth_token", crate::crypto::encode_hex(&token))
+                .secure(true)
+                .expires(Expiration::Session)
+                .finish();
+            
+            let token_id = encryptor
+                .encrypt(&user_id.to_ne_bytes(), &crate::crypto::id_salt())
+                .unwrap();
+
+            let cookie_id = CookieBuilder::new("auth_token_id", crate::crypto::encode_hex(&token_id))
                 .secure(true)
                 .expires(Expiration::Session)
                 .finish();
 
-            let string = String::from_utf8(encryptor.decrypt(&token, &user_salt).unwrap()).unwrap();
-
-            println!("{string}");
-            HttpResponse::Accepted().cookie(cookie).finish()
+            HttpResponse::Accepted()
+                .cookie(cookie_at)
+                .cookie(cookie_id)
+                .finish()
         }
     }
 }
