@@ -1,0 +1,1 @@
+SELECT (some_data) FROM testing.data;

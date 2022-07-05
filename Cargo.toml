@@ -1,0 +1,26 @@
+[package]
+name = "alsit"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+tokio = {version = "1.19.2", features = ["full", "sync"]}
+actix-web = {version = "4.1.0", features = ["cookies"]}
+deadpool-postgres = "0.10.2"
+tokio-postgres = "0.7.6"
+dotenv = "0.15.0"
+aes-gcm = "0.9.4"
+rand = "0.8.5"
+pretty_env_logger = "0.4.0"
+log = "0.4.17"
+argon2 = "0.4.1"
+serde = {version = "1.0.137", features = ["derive"]}
+serde_json = "1.0.81"
+bollard = "0.13.0"
+tar = "0.4.38"
+
+[profile.dev]
+debug = 2
+incremental = true

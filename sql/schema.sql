@@ -1,0 +1,6 @@
+DROP SCHEMA IF EXISTS testing CASCADE;
+CREATE SCHEMA testing;
+
+CREATE TABLE testing.data (
+    some_data VARCHAR UNIQUE NOT NULL
+);
