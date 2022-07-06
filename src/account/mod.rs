@@ -1,9 +1,6 @@
-use actix_web::{
-    cookie::{Cookie, CookieBuilder},
-    web, HttpResponse,
-};
+use actix_web::{cookie::CookieBuilder, web, HttpResponse};
 
-use deadpool_postgres::{Pool, Object};
+use deadpool_postgres::{Object, Pool};
 use serde::{Deserialize, Serialize};
 
 use crate::crypto::{Encryptor, Hasher};
@@ -33,9 +30,7 @@ struct LoginForm {
     password: String,
 }
 
-async fn generate_user_id(
-    client: &Object
-) -> Result<i64, ()> {
+async fn generate_user_id(client: &Object) -> Result<i64, ()> {
     use rand::prelude::*;
     let mut rng = thread_rng();
     let check_stmt = include_str!("id_query.sql");
@@ -43,16 +38,8 @@ async fn generate_user_id(
     loop {
         let possible_id: i64 = rng.gen();
 
-        let query_result = client
-            .query_opt(
-                check_stmt, 
-                &[
-                    &possible_id
-                ]
-            
-            )
-            .await;
-        
+        let query_result = client.query_opt(check_stmt, &[&possible_id]).await;
+
         match query_result {
             Err(error) => {
                 error!("Error occured while generated user id. {:?}", error);
@@ -67,10 +54,7 @@ async fn generate_user_id(
     }
 }
 
-async fn insert_into_database(
-    processed_data: SignupProcessed,
-    client: Object,
-) -> HttpResponse {
+async fn insert_into_database(processed_data: SignupProcessed, client: Object) -> HttpResponse {
     let insert_stmt = include_str!("insert_user.sql");
 
     let query_result = client
@@ -85,7 +69,7 @@ async fn insert_into_database(
             ],
         )
         .await;
-    
+
     error!("JESTEM TU3");
 
     match query_result {
@@ -158,7 +142,6 @@ pub async fn create_account(
         }
     };
 
-
     let user_preprocessed = SignupProcessed {
         id: user_id,
         username: user_data.username.to_string(),
@@ -221,7 +204,8 @@ async fn login_into_account(
         return HttpResponse::UnprocessableEntity().body("Username is too long.");
     }
 
-    let (password_hash, user_salt, user_id) = match find_user_in_database(db, &form.username).await {
+    let (password_hash, user_salt, user_id) = match find_user_in_database(db, &form.username).await
+    {
         Ok(res) => res,
         Err(e) => return e,
     };
@@ -241,15 +225,16 @@ async fn login_into_account(
                 .secure(true)
                 .expires(Expiration::Session)
                 .finish();
-            
+
             let token_id = encryptor
                 .encrypt(&user_id.to_ne_bytes(), &crate::crypto::id_salt())
                 .unwrap();
 
-            let cookie_id = CookieBuilder::new("auth_token_id", crate::crypto::encode_hex(&token_id))
-                .secure(true)
-                .expires(Expiration::Session)
-                .finish();
+            let cookie_id =
+                CookieBuilder::new("auth_token_id", crate::crypto::encode_hex(&token_id))
+                    .secure(true)
+                    .expires(Expiration::Session)
+                    .finish();
 
             HttpResponse::Accepted()
                 .cookie(cookie_at)

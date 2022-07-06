@@ -1,10 +1,9 @@
-use std::{str::FromStr, fmt::Display};
+use std::{fmt::Display, str::FromStr};
 
-use actix_web::{web, Error, Responder, Result, HttpResponse};
-use deadpool_postgres::{Object, Pool};
-use serde::{Deserialize, Serialize};
-use tokio_postgres::types::ToSql;
 use crate::account::UserId;
+use actix_web::{web, HttpResponse, Result};
+use deadpool_postgres::{Object, Pool};
+use serde::Deserialize;
 
 pub type TicketId = i64;
 pub type ExerciseId = i64;
@@ -14,20 +13,6 @@ pub enum Language {
     C = 0,
     Cpp,
     Rust,
-}
-
-// TODO: Make macro to automatic conversion.
-impl FromStr for Language {
-    type Err = ();
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "C" => Ok(Language::C),
-            "Cpp" => Ok(Language::Cpp),
-            "Rust" => Ok(Language::Rust),
-            _ => Err(())
-        }
-    }
 }
 
 impl Display for Language {
@@ -42,39 +27,32 @@ impl Display for Language {
     }
 }
 
-#[derive(Serialize, Debug, Deserialize)]
-enum TicketStatus {
-    Created = 0,
-    Compiled,
-    Verified,
-    Tested,
-}
-
-// TODO: Make macro to automatic conversion.
-impl FromStr for TicketStatus {
-    type Err = ();
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "Created" => Ok(TicketStatus::Created),
-            "Compiled" => Ok(TicketStatus::Compiled),
-            "Verified" => Ok(TicketStatus::Verified),
-            "Tested" => Ok(TicketStatus::Tested),
-            _ => Err(())
+impl Language {
+    pub fn extension(&self) -> &'static str {
+        match &self {
+            &Language::C => ".c",
+            &Language::Cpp => ".cpp",
+            &Language::Rust => ".rs",
         }
     }
 }
 
-impl Display for TicketStatus {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let string_description = match &self {
-            &TicketStatus::Created => "Created",
-            &TicketStatus::Compiled => "Compiled",
-            &TicketStatus::Verified => "Verified",
-            &TicketStatus::Tested => "Tested"
-        };
+pub enum TicketError {
+    DatabaseError,
+    WrongTicketId,
+}
 
-        write!(f, "{string_description}")
+// TODO: Make macro to automatic conversion.
+impl FromStr for Language {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "C" => Ok(Language::C),
+            "Cpp" => Ok(Language::Cpp),
+            "Rust" => Ok(Language::Rust),
+            _ => Err(()),
+        }
     }
 }
 
@@ -85,7 +63,7 @@ pub struct Ticket {
     content: String,
     exercise_id: ExerciseId,
 
-    status: TicketStatus,
+    judged: bool,
     ticket_id: TicketId,
 
     results_id: Option<i64>,
@@ -106,16 +84,9 @@ async fn generate_id(client: &Object) -> Result<TicketId, ()> {
 
     loop {
         let possible_id: TicketId = rng.gen();
-        
-        let query_result = client
-            .query_opt(
-                check_stmt,
-                &[
-                    &possible_id
-                ]
-            )
-            .await;
-        
+
+        let query_result = client.query_opt(check_stmt, &[&possible_id]).await;
+
         match query_result {
             Err(_) => {
                 return Err(());
@@ -129,6 +100,17 @@ async fn generate_id(client: &Object) -> Result<TicketId, ()> {
     }
 }
 
+pub async fn get_content(
+    ticket_id: TicketId,
+    db: &Pool,
+) -> Result<(String, Language), TicketError> {
+    todo!()
+}
+
+pub async fn set_judged(ticket_id: TicketId, db: &Pool) -> Result<(), TicketError> {
+    todo!()
+}
+
 impl Ticket {
     async fn create(form: TicketForm, user_id: UserId, ticket_id: TicketId) -> Ticket {
         Ticket {
@@ -136,8 +118,8 @@ impl Ticket {
             language: form.language,
             content: form.content,
             exercise_id: form.exercise_id,
-            status: TicketStatus::Created,
-            ticket_id: ticket_id,
+            judged: false,
+            ticket_id,
             results_id: None,
         }
     }
@@ -151,21 +133,24 @@ impl Ticket {
     }
 }
 
+// TODO: Make field in ticket table boolean not ticketstatus!
 async fn insert_ticket(ticket: Ticket, client: &Object) -> HttpResponse {
     let insert_stmt = include_str!("insert_ticket.sql");
 
-    let query_result = client.query(
-        insert_stmt,
-        &[
-            &ticket.ticket_id,
-            &ticket.user_id,
-            &ticket.language.to_string(),
-            &ticket.content,
-            &ticket.exercise_id,
-            &ticket.status.to_string()
-        ])
+    let query_result = client
+        .query(
+            insert_stmt,
+            &[
+                &ticket.ticket_id,
+                &ticket.user_id,
+                &ticket.language.to_string(),
+                &ticket.content,
+                &ticket.exercise_id,
+                &ticket.judged,
+            ],
+        )
         .await;
-    
+
     if let Err(error) = query_result {
         error!("Error occured while inserting ticket. {:?}", error);
         HttpResponse::ServiceUnavailable().finish()
@@ -192,14 +177,8 @@ async fn create_ticket(form: web::Json<TicketForm>, db: web::Data<Pool>) -> Http
 
     let user_id = 0;
 
-    let ticket = Ticket::create(
-        form.into_inner(),
-        user_id,
-        ticket_id
-    )
-    .await;
+    let ticket = Ticket::create(form.into_inner(), user_id, ticket_id).await;
 
-    
     insert_ticket(ticket, &client).await
 }
 

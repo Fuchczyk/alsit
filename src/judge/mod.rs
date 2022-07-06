@@ -1,11 +1,8 @@
 use crate::ticket::{Language, TicketId};
-use std::{collections::HashMap, sync::Arc};
+use std::sync::Arc;
 use tokio::sync::Mutex;
-use tokio::task;
 
 mod virtualization;
-
-pub use virtualization::testing;
 
 pub enum JudgeError {
     MismatchedLanguage {
@@ -16,8 +13,12 @@ pub enum JudgeError {
     PoisonedJudge,
 }
 
-struct Judge {
-    lang: Language, // Some docker field
+struct Judge {}
+
+impl Default for Judge {
+    fn default() -> Self {
+        Self {}
+    }
 }
 
 impl Judge {
@@ -26,58 +27,35 @@ impl Judge {
 
 #[derive(Clone)]
 pub struct JudgeDispatcher {
-    judges_list: HashMap<Language, Vec<Arc<Mutex<Judge>>>>,
+    judges_list: Arc<Vec<Arc<Mutex<Judge>>>>,
 }
 
 unsafe impl Sync for JudgeDispatcher {}
 
 impl JudgeDispatcher {
-    async fn new(judges: Vec<Arc<Mutex<Judge>>>) -> Result<JudgeDispatcher, JudgeError> {
-        let mut map = HashMap::new();
+    fn new(number_of_judges: usize) -> JudgeDispatcher {
+        let judges_vec = Arc::new(Vec::new());
 
-        for judge in judges {
-            let judge_inside = judge.lock().await;
-
-            let language = judge_inside.lang.clone();
-
-            match map.get_mut(&language) {
-                None => {
-                    let mut vector = Vec::new();
-                    vector.push(judge.clone());
-
-                    map.insert(language, vector);
-                }
-                Some(vector) => {
-                    vector.push(judge.clone());
-                }
-            }
+        for _i in 0..number_of_judges {
+            judges_vec.push(Arc::new(Mutex::new(Judge::default())));
         }
 
-        Ok(JudgeDispatcher { judges_list: map })
+        JudgeDispatcher {
+            judges_list: judges_vec,
+        }
     }
 
-    fn queue_judging(&self, ticket: &super::ticket::Ticket) -> Result<(), JudgeError> {
+    pub fn queue_judging(&self, ticket_id: TicketId) -> Result<(), JudgeError> {
         use rand::prelude::*;
-
-        let judges = match self.judges_list.get(&ticket.language()) {
-            Some(list) => list,
-            None => {
-                error!(
-                    "No judges were found for language: {:?}.",
-                    ticket.language()
-                );
-                return Err(JudgeError::InternalError);
-            }
-        };
 
         let mut rng = thread_rng();
 
-        let judge = judges
-            .get(rng.gen::<usize>() % judges.len())
+        let judge = self
+            .judges_list
+            .get(rng.gen::<usize>() % self.judges_list.len())
             .unwrap()
             .clone();
 
-        let ticket_id = ticket.id();
         tokio::task::spawn(async move {
             judge.lock().await.judge(ticket_id);
         });

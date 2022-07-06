@@ -172,8 +172,8 @@ pub fn generate_salt() -> [u8; crate::HASH_SALT_LEN] {
     result
 }
 
-pub fn id_salt() -> [u8 ; crate::HASH_SALT_LEN] {
-    [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]
+pub fn id_salt() -> [u8; crate::HASH_SALT_LEN] {
+    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
 }
 
 use deadpool_postgres::Pool;

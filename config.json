@@ -1,3 +1,6 @@
 {
-    "testing_image_name": "alsit_testing_image"
+    "testing_image_name": "alsit_testing_image",
+    "server_image_name": "alsit_server",
+    "server_container_name": "alsit_instance",
+    "data_path": "."
 }
