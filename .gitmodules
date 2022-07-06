@@ -1,0 +1,3 @@
+[submodule "alsit-testing"]
+	path = alsit-testing
+	url = git@github.com:Fuchczyk/alsit-testing.git
